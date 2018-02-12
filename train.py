@@ -37,27 +37,25 @@ parser.add_argument('--decoder', type=str, default='mlp',
                     help='Type of decoder model (mlp, rnn, or sim).')
 parser.add_argument('--no-factor', action='store_true', default=False,
                     help='Disables factor graph model.')
-parser.add_argument('--suffix', type=str, default='_springs',
+parser.add_argument('--suffix', type=str, default='_springs5',
                     help='Suffix for training data (e.g. "_charged".')
 parser.add_argument('--encoder-dropout', type=float, default=0.0,
                     help='Dropout rate (1 - keep probability).')
 parser.add_argument('--decoder-dropout', type=float, default=0.0,
                     help='Dropout rate (1 - keep probability).')
-parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                    help='How many batches to wait before logging.')
 parser.add_argument('--save-folder', type=str, default='logs',
-                    help='Where to save the trained model.')
+                    help='Where to save the trained model, leave empty to not save anything.')
 parser.add_argument('--load-folder', type=str, default='',
                     help='Where to load the trained model if finetunning. ' +
                          'Leave empty to train from scratch')
 parser.add_argument('--edge-types', type=int, default=2,
                     help='The number of edge types to infer.')
 parser.add_argument('--dims', type=int, default=4,
-                    help='The number of dimensions (position + velocity).')
+                    help='The number of input dimensions (position + velocity).')
 parser.add_argument('--timesteps', type=int, default=49,
                     help='The number of time steps per sample.')
 parser.add_argument('--prediction-steps', type=int, default=10, metavar='N',
-                    help='Num steps to predict before using teacher forcing.')
+                    help='Num steps to predict before re-using teacher forcing.')
 parser.add_argument('--lr-decay', type=int, default=200,
                     help='After how epochs to decay LR by a factor of gamma.')
 parser.add_argument('--gamma', type=float, default=0.5,
@@ -65,20 +63,16 @@ parser.add_argument('--gamma', type=float, default=0.5,
 parser.add_argument('--motion', action='store_true', default=False,
                     help='Use motion capture data loader.')
 parser.add_argument('--skip-first', action='store_true', default=False,
-                    help='Skip first edge type in decoder.')
+                    help='Skip first edge type in decoder, i.e. it represents no-edge.')
 parser.add_argument('--var', type=float, default=5e-5,
                     help='Output variance.')
 parser.add_argument('--hard', action='store_true', default=False,
-                    help='Uses discrete samples in forward pass.')
+                    help='Uses discrete samples in training forward pass.')
 parser.add_argument('--prior', action='store_true', default=False,
                     help='Whether to use sparsity prior.')
 parser.add_argument('--dynamic-graph', action='store_true', default=False,
                     help='Whether test with dynamically re-computed graph.')
-parser.add_argument('--old', action='store_true', default=False,
-                    help='Use old Kuramoto dataset.')
 
-
-print("NOTE: For Kuramoto model, set variance to 0.01.")
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -93,17 +87,12 @@ if args.cuda:
 if args.dynamic_graph:
     print("Testing with dynamically re-computed graph.")
 
-log = None
-# Save model and meta-data. Always saves in a new folder.
+# Save model and meta-data. Always saves in a new sub-folder.
 if args.save_folder:
     exp_counter = 0
     now = datetime.datetime.now()
     timestamp = now.isoformat()
     save_folder = '{}/exp{}/'.format(args.save_folder, timestamp)
-    while os.path.isdir(save_folder):
-        exp_counter += 1
-        save_folder = os.path.join(args.save_folder,
-                                   'exp{}'.format(exp_counter))
     os.mkdir(save_folder)
     meta_file = os.path.join(save_folder, 'metadata.pkl')
     encoder_file = os.path.join(save_folder, 'encoder.pt')
@@ -120,10 +109,6 @@ else:
 if args.motion:
     train_loader, valid_loader, test_loader = load_motion_data(args.batch_size,
                                                                args.suffix)
-elif args.old:
-    train_loader, valid_loader, test_loader = load_kuramoto_data_old(
-        args.batch_size,
-        args.suffix)
 elif args.suffix == "_kuramoto5" or args.suffix == "_kuramoto10":
     train_loader, valid_loader, test_loader = load_kuramoto_data(
         args.batch_size,
@@ -132,19 +117,9 @@ else:
     train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = load_data(
         args.batch_size, args.suffix)
 
-# data, relations = train_loader.__iter__().next()
-# data, relations = data.cuda(), relations.cuda()
-# data, relations = Variable(data), Variable(relations, requires_grad=True)
-# logits = encoder(data, rel_rec, rel_send)
-# edges = gumbel_softmax(logits, tau=args.temp, hard=True)
-# if args.symmetric:
-#     edges[:, tril_indices, :] = edges[:, triu_indices, :]
-# np.save("data/motion_edges.npy", edges.data.cpu().numpy())
-
 # Generate off-diagonal interaction graph
 off_diag = np.ones([args.num_atoms, args.num_atoms]) - np.eye(args.num_atoms)
 
-# TODO: Is naming correct (rel_rec vs. rel_send)? Or other way around?
 rel_rec = np.array(encode_onehot(np.where(off_diag)[1]), dtype=np.float32)
 rel_send = np.array(encode_onehot(np.where(off_diag)[0]), dtype=np.float32)
 rel_rec = torch.FloatTensor(rel_rec)
@@ -192,12 +167,12 @@ optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()),
 scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_decay,
                                 gamma=args.gamma)
 
-# Linear indices of an upper triangular mx, used for loss calculation
+# Linear indices of an upper triangular mx, used for acc calculation
 triu_indices = get_triu_offdiag_indices(args.num_atoms)
 tril_indices = get_tril_offdiag_indices(args.num_atoms)
 
 if args.prior:
-    prior = np.array([0.91, 0.03, 0.03, 0.03])
+    prior = np.array([0.91, 0.03, 0.03, 0.03]) #TODO hard coded for now
     print("Using prior")
     print(prior)
     log_prior = torch.FloatTensor(np.log(prior))
@@ -218,34 +193,6 @@ if args.cuda:
 
 rel_rec = Variable(rel_rec)
 rel_send = Variable(rel_send)
-
-
-def kl_categorical(preds, log_prior, num_atoms, eps=1e-16):
-    kl_div = preds * (torch.log(preds + eps) - log_prior)
-    return kl_div.sum() / (num_atoms * preds.size(0))
-
-
-def kl_categorical_uniform(preds, num_atoms, add_const=False, eps=1e-16):
-    kl_div = preds * torch.log(preds + eps)
-    if add_const:
-        const = np.log(args.edge_types)
-        kl_div += const
-    return kl_div.sum() / (num_atoms * preds.size(0))
-
-
-def nll_gaussian(preds, target, variance, add_const=False):
-    neg_log_p = ((preds - target) ** 2 / (2 * variance))
-    if add_const:
-        const = 0.5 * np.log(2 * np.pi * variance)
-        neg_log_p += const
-    return neg_log_p.sum() / (target.size(0) * target.size(1))
-
-
-def edge_accuracy(preds, target):
-    _, preds = preds.max(-1)
-    correct = preds.float().data.eq(
-        target.float().data.view_as(preds)).cpu().sum()
-    return np.float(correct) / (target.size(0) * target.size(1))
 
 
 def train(epoch, best_val_loss):
@@ -316,7 +263,7 @@ def train(epoch, best_val_loss):
         edges = gumbel_softmax(logits, tau=args.temp, hard=True)
         prob = my_softmax(logits, -1)
 
-        output = decoder(data, edges, rel_rec, rel_send, 1)
+        output = decoder(data, edges, rel_rec, rel_send, 1) # validation output uses teacher forcing
 
         target = data[:, :, 1:, :]
         loss_nll = nll_gaussian(output, target, args.var)

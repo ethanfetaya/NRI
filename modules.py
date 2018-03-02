@@ -2,11 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-import numpy as np
+
 from torch.autograd import Variable
 from utils import my_softmax, get_offdiag_indices, gumbel_softmax
-
-import pdb
 
 _EPS = 1e-10
 
@@ -88,9 +86,9 @@ class CNN(nn.Module):
         return edge_prob
 
 
-class InteractionNet(nn.Module):
+class MLPEncoder(nn.Module):
     def __init__(self, n_in, n_hid, n_out, do_prob=0., factor=True):
-        super(InteractionNet, self).__init__()
+        super(MLPEncoder, self).__init__()
 
         self.factor = factor
 
@@ -149,79 +147,9 @@ class InteractionNet(nn.Module):
         return self.fc_out(x)
 
 
-class InteractionLSTM(nn.Module):
+class CNNEncoder(nn.Module):
     def __init__(self, n_in, n_hid, n_out, do_prob=0., factor=True):
-        super(InteractionLSTM, self).__init__()
-
-        self.factor = factor
-
-        self.mlp1 = MLP(n_in, n_hid, n_hid, do_prob)
-        self.lstm = nn.LSTM(n_hid, n_hid,
-                            num_layers=1, bidirectional=True)
-
-        self.mlp2 = MLP(n_hid * 4, n_hid, n_hid, do_prob)
-        self.mlp3 = MLP(n_hid, n_hid, n_hid, do_prob)
-        if self.factor:
-            self.mlp4 = MLP(n_hid * 3, n_hid, n_hid, do_prob)
-            print("Using factor graph LSTM encoder.")
-        else:
-            self.mlp4 = MLP(n_hid * 2, n_hid, n_hid, do_prob)
-            print("Using LSTM encoder.")
-        self.fc_out = nn.Linear(n_hid, n_out)
-        self.init_weights()
-
-    def init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_normal(m.weight.data)
-                m.bias.data.fill_(0.1)
-
-    def edge2node(self, x, rel_rec, rel_send):
-        # NOTE: Assumes that we have the same graph across all samples.
-        incoming = torch.matmul(rel_rec.t(), x)
-        return incoming / incoming.size(1)
-
-    def node2edge(self, x, rel_rec, rel_send):
-        # NOTE: Assumes that we have the same graph across all samples.
-        receivers = torch.matmul(rel_rec, x)
-        senders = torch.matmul(rel_send, x)
-        edges = torch.cat([receivers, senders], dim=2)
-        return edges
-
-    def forward(self, inputs, rel_rec, rel_send):
-        # Input shape: [num_sims, num_atoms, num_timesteps, num_dims]
-
-        x = inputs.view(inputs.size(0) * inputs.size(1), inputs.size(2),
-                        inputs.size(3))
-
-        x = self.mlp1(x)
-
-        # BiLSTM
-        lstm_out, _ = self.lstm(x)
-        x, _ = lstm_out.max(1)
-        x = x.view(inputs.size(0), inputs.size(1), -1)
-
-        x = self.node2edge(x, rel_rec, rel_send)
-        x = self.mlp2(x)
-        x_skip = x
-
-        if self.factor:
-            x = self.edge2node(x, rel_rec, rel_send)
-            x = self.mlp3(x)
-            x = self.node2edge(x, rel_rec, rel_send)
-            x = torch.cat((x, x_skip), dim=2)  # Skip connection
-            x = self.mlp4(x)
-        else:
-            x = self.mlp3(x)
-            x = torch.cat((x, x_skip), dim=2)  # Skip connection
-            x = self.mlp4(x)
-
-        return self.fc_out(x)
-
-
-class InteractionConvNet(nn.Module):
-    def __init__(self, n_in, n_hid, n_out, do_prob=0., factor=True):
-        super(InteractionConvNet, self).__init__()
+        super(CNNEncoder, self).__init__()
         self.dropout_prob = do_prob
 
         self.factor = factor
@@ -463,14 +391,6 @@ class SimulationDecoder(nn.Module):
                 forces[forces > self._max_F] = self._max_F
                 forces[forces < -self._max_F] = -self._max_F
 
-                # Soft clipping
-                # forces = self._max_F - F.softplus(-forces + self._max_F,
-                #                                   beta=1.)
-                # forces = -self._max_F + F.softplus(forces + self._max_F,
-                #                                    beta=1.)
-
-            # TODO: Maybe normalization is an issue? Re-do sims with box_size=1
-
             # Leapfrog integration step
             vel = vel + self._delta_T * forces
             loc = loc + self._delta_T * vel
@@ -489,16 +409,15 @@ class SimulationDecoder(nn.Module):
         out = torch.cat((loc, vel), dim=-1)
         # Output has shape: [num_sims, num_things, num_timesteps-1, num_dims]
 
-        # TODO: Multiple prediction steps as in InteractionDecoder
         return out
 
 
-class InteractionDecoder(nn.Module):
-    """Interaction decoder module."""
+class MLPDecoder(nn.Module):
+    """MLP decoder module."""
 
     def __init__(self, n_in_node, edge_types, msg_hid, msg_out, n_hid,
                  do_prob=0., skip_first=False):
-        super(InteractionDecoder, self).__init__()
+        super(MLPDecoder, self).__init__()
         self.msg_fc1 = nn.ModuleList(
             [nn.Linear(2 * n_in_node, msg_hid) for _ in range(edge_types)])
         self.msg_fc2 = nn.ModuleList(
@@ -599,18 +518,15 @@ class InteractionDecoder(nn.Module):
 
         pred_all = output[:, :(inputs.size(1) - 1), :, :]
 
-        # NOTE: We potentially over-predicted (stored in future_pred). Unused.
-        # future_pred = output[:, (inputs.size(1) - 1):, :, :]
-
         return pred_all.transpose(1, 2).contiguous()
 
 
-class InteractionDecoderRecurrent(nn.Module):
-    """Recurrent interaction decoder module."""
+class RNNDecoder(nn.Module):
+    """Recurrent decoder module."""
 
     def __init__(self, n_in_node, edge_types, n_hid,
                  do_prob=0., skip_first=False):
-        super(InteractionDecoderRecurrent, self).__init__()
+        super(RNNDecoder, self).__init__()
         self.msg_fc1 = nn.ModuleList(
             [nn.Linear(2 * n_hid, n_hid) for _ in range(edge_types)])
         self.msg_fc2 = nn.ModuleList(
@@ -673,10 +589,6 @@ class InteractionDecoderRecurrent(nn.Module):
         n = F.tanh(self.input_n(inputs) + r * self.hidden_h(agg_msgs))
         hidden = (1 - i) * n + i * hidden
 
-        # # Standard recurrent aggregation
-        # hidden = agg_msgs.add_(hidden).add_(F.tanh(
-        #     self.input_n(inputs)))
-
         # Output MLP
         pred = F.dropout(F.relu(self.out_fc1(hidden)), p=self.dropout_prob)
         pred = F.dropout(F.relu(self.out_fc2(pred)), p=self.dropout_prob)
@@ -725,8 +637,9 @@ class InteractionDecoderRecurrent(nn.Module):
 
             if dynamic_graph and step >= burn_in_steps:
                 # NOTE: Assumes burn_in_steps = args.timesteps
-                logits = encoder(data[:, :, step-burn_in_steps:step, :].contiguous(),
-                                 rel_rec, rel_send)
+                logits = encoder(
+                    data[:, :, step - burn_in_steps:step, :].contiguous(),
+                    rel_rec, rel_send)
                 rel_type = gumbel_softmax(logits, tau=temp, hard=True)
 
             pred, hidden = self.single_step_forward(ins, rel_rec, rel_send,

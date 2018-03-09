@@ -19,7 +19,7 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
 parser.add_argument('--epochs', type=int, default=500,
                     help='Number of epochs to train.')
-parser.add_argument('--batch_size', type=int, default=128,
+parser.add_argument('--batch-size', type=int, default=128,
                     help='Number of samples per batch.')
 parser.add_argument('--lr', type=float, default=0.0005,
                     help='Initial learning rate.')
@@ -29,7 +29,7 @@ parser.add_argument('--decoder-hidden', type=int, default=256,
                     help='Number of hidden units.')
 parser.add_argument('--temp', type=float, default=0.5,
                     help='Temperature for Gumbel softmax.')
-parser.add_argument('--num_atoms', type=int, default=5,
+parser.add_argument('--num-atoms', type=int, default=5,
                     help='Number of atoms in simulation.')
 parser.add_argument('--encoder', type=str, default='mlp',
                     help='Type of path encoder model (mlp or cnn).')
@@ -60,8 +60,6 @@ parser.add_argument('--lr-decay', type=int, default=200,
                     help='After how epochs to decay LR by a factor of gamma.')
 parser.add_argument('--gamma', type=float, default=0.5,
                     help='LR decay factor.')
-parser.add_argument('--motion', action='store_true', default=False,
-                    help='Use motion capture data loader.')
 parser.add_argument('--skip-first', action='store_true', default=False,
                     help='Skip first edge type in decoder, i.e. it represents no-edge.')
 parser.add_argument('--var', type=float, default=5e-5,
@@ -72,7 +70,6 @@ parser.add_argument('--prior', action='store_true', default=False,
                     help='Whether to use sparsity prior.')
 parser.add_argument('--dynamic-graph', action='store_true', default=False,
                     help='Whether test with dynamically re-computed graph.')
-
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -106,16 +103,8 @@ else:
     print("WARNING: No save_folder provided!" +
           "Testing (within this script) will throw an error.")
 
-if args.motion:
-    train_loader, valid_loader, test_loader = load_motion_data(args.batch_size,
-                                                               args.suffix)
-elif args.suffix == "_kuramoto5" or args.suffix == "_kuramoto10":
-    train_loader, valid_loader, test_loader = load_kuramoto_data(
-        args.batch_size,
-        args.suffix)
-else:
-    train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = load_data(
-        args.batch_size, args.suffix)
+train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = load_data(
+    args.batch_size, args.suffix)
 
 # Generate off-diagonal interaction graph
 off_diag = np.ones([args.num_atoms, args.num_atoms]) - np.eye(args.num_atoms)
@@ -126,31 +115,28 @@ rel_rec = torch.FloatTensor(rel_rec)
 rel_send = torch.FloatTensor(rel_send)
 
 if args.encoder == 'mlp':
-    encoder = InteractionNet(args.timesteps * args.dims, args.encoder_hidden,
-                             args.edge_types,
-                             args.encoder_dropout, args.factor)
+    encoder = MLPEncoder(args.timesteps * args.dims, args.encoder_hidden,
+                         args.edge_types,
+                         args.encoder_dropout, args.factor)
 elif args.encoder == 'cnn':
-    encoder = InteractionConvNet(args.dims, args.encoder_hidden,
-                                 args.edge_types,
-                                 args.encoder_dropout, args.factor)
-elif args.encoder == 'lstm':
-    encoder = InteractionLSTM(args.dims, args.encoder_hidden, args.edge_types,
-                              args.encoder_dropout, args.factor)
+    encoder = CNNEncoder(args.dims, args.encoder_hidden,
+                         args.edge_types,
+                         args.encoder_dropout, args.factor)
 
 if args.decoder == 'mlp':
-    decoder = InteractionDecoder(n_in_node=args.dims,
-                                 edge_types=args.edge_types,
-                                 msg_hid=args.decoder_hidden,
-                                 msg_out=args.decoder_hidden,
-                                 n_hid=args.decoder_hidden,
-                                 do_prob=args.decoder_dropout,
-                                 skip_first=args.skip_first)
+    decoder = MLPDecoder(n_in_node=args.dims,
+                         edge_types=args.edge_types,
+                         msg_hid=args.decoder_hidden,
+                         msg_out=args.decoder_hidden,
+                         n_hid=args.decoder_hidden,
+                         do_prob=args.decoder_dropout,
+                         skip_first=args.skip_first)
 elif args.decoder == 'rnn':
-    decoder = InteractionDecoderRecurrent(n_in_node=args.dims,
-                                          edge_types=args.edge_types,
-                                          n_hid=args.decoder_hidden,
-                                          do_prob=args.decoder_dropout,
-                                          skip_first=args.skip_first)
+    decoder = RNNDecoder(n_in_node=args.dims,
+                         edge_types=args.edge_types,
+                         n_hid=args.decoder_hidden,
+                         do_prob=args.decoder_dropout,
+                         skip_first=args.skip_first)
 elif args.decoder == 'sim':
     decoder = SimulationDecoder(loc_max, loc_min, vel_max, vel_min, args.suffix)
 
@@ -172,7 +158,7 @@ triu_indices = get_triu_offdiag_indices(args.num_atoms)
 tril_indices = get_tril_offdiag_indices(args.num_atoms)
 
 if args.prior:
-    prior = np.array([0.91, 0.03, 0.03, 0.03]) #TODO hard coded for now
+    prior = np.array([0.91, 0.03, 0.03, 0.03])  # TODO: hard coded for now
     print("Using prior")
     print(prior)
     log_prior = torch.FloatTensor(np.log(prior))
@@ -263,7 +249,8 @@ def train(epoch, best_val_loss):
         edges = gumbel_softmax(logits, tau=args.temp, hard=True)
         prob = my_softmax(logits, -1)
 
-        output = decoder(data, edges, rel_rec, rel_send, 1) # validation output uses teacher forcing
+        # validation output uses teacher forcing
+        output = decoder(data, edges, rel_rec, rel_send, 1)
 
         target = data[:, :, 1:, :]
         loss_nll = nll_gaussian(output, target, args.var)

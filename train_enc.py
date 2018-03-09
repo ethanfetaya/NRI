@@ -18,15 +18,15 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
 parser.add_argument('--epochs', type=int, default=500,
                     help='Number of epochs to train.')
-parser.add_argument('--batch_size', type=int, default=128,
+parser.add_argument('--batch-size', type=int, default=128,
                     help='Number of samples per batch.')
 parser.add_argument('--lr', type=float, default=0.01,
                     help='Initial learning rate.')
 parser.add_argument('--hidden', type=int, default=512,
                     help='Number of hidden units.')
-parser.add_argument('--num_atoms', type=int, default=5,
+parser.add_argument('--num-atoms', type=int, default=5,
                     help='Number of atoms in simulation.')
-parser.add_argument('--num_classes', type=int, default=2,
+parser.add_argument('--num-classes', type=int, default=2,
                     help='Number of edge types.')
 parser.add_argument('--encoder', type=str, default='mlp',
                     help='Type of path encoder model (mlp or cnn).')
@@ -83,37 +83,24 @@ else:
     print("WARNING: No save_folder provided!" +
           "Testing (within this script) will throw an error.")
 
-if args.motion:
-    train_loader, valid_loader, test_loader = load_motion_data(args.batch_size,
-                                                               args.suffix)
-elif args.suffix == "_kuramoto5" or args.suffix == "_kuramoto10":
-    train_loader, valid_loader, test_loader = load_kuramoto_data(
-        args.batch_size,
-        args.suffix)
-else:
-    train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = load_data(
-        args.batch_size, args.suffix)
-# data, target = train_loader.__iter__().next()
+train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = load_data(
+    args.batch_size, args.suffix)
 
 # Generate off-diagonal interaction graph
 off_diag = np.ones([args.num_atoms, args.num_atoms]) - np.eye(args.num_atoms)
 
-# TODO: Is naming correct (rel_rec vs. rel_senc)? Or other way around?
 rel_rec = np.array(encode_onehot(np.where(off_diag)[1]), dtype=np.float32)
 rel_send = np.array(encode_onehot(np.where(off_diag)[0]), dtype=np.float32)
 rel_rec = torch.FloatTensor(rel_rec)
 rel_send = torch.FloatTensor(rel_send)
 
 if args.encoder == 'mlp':
-    model = InteractionNet(args.timesteps * args.dims, args.hidden,
-                           args.edge_types,
-                           args.dropout, args.factor)
+    model = MLPEncoder(args.timesteps * args.dims, args.hidden,
+                       args.edge_types,
+                       args.dropout, args.factor)
 elif args.encoder == 'cnn':
-    model = InteractionConvNet(args.dims, args.hidden, args.edge_types,
-                               args.dropout, args.factor)
-elif args.encoder == 'lstm':
-    model = InteractionLSTM(args.dims, args.hidden, args.edge_types,
-                            args.dropout, args.factor)
+    model = CNNEncoder(args.dims, args.hidden, args.edge_types,
+                       args.dropout, args.factor)
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_decay,

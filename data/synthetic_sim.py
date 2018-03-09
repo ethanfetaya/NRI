@@ -3,9 +3,6 @@ import matplotlib.pyplot as plt
 import time
 
 
-# np.random.seed(0)
-
-
 class SpringSim(object):
     def __init__(self, n_balls=5, box_size=5., loc_std=.5, vel_norm=.5,
                  interaction_strength=.1, noise_var=0.):
@@ -305,17 +302,8 @@ if __name__ == '__main__':
     for i in range(loc.shape[-1]):
         plt.plot(loc[:, 0, i], loc[:, 1, i])
         plt.plot(loc[0, 0, i], loc[0, 1, i], 'd')
-    # #plt.plot(vel_norm[:,i])
     plt.figure()
     energies = [sim._energy(loc[i, :, :], vel[i, :, :], edges) for i in
                 range(loc.shape[0])]
     plt.plot(energies)
-    #     mom = vel.sum(axis=2)
-    #     mom_diff = (mom[1:,:]-mom[:-1,:]).sum(axis=1)
-    #     plt.figure()
-    #     plt.plot(mom_diff)
     plt.show()
-
-    # np.save("loc.npy", loc)
-    # np.save("vel.npy", vel)
-    # np.save("edges.npy", edges)

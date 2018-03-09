@@ -7,12 +7,11 @@ import pickle
 import os
 import datetime
 
-import torch.nn as nn
 import torch.optim as optim
 from torch.optim import lr_scheduler
 
 from utils import *
-from modules import InteractionDecoder, InteractionDecoderRecurrent
+from modules import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -20,7 +19,7 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
 parser.add_argument('--epochs', type=int, default=500,
                     help='Number of epochs to train.')
-parser.add_argument('--batch_size', type=int, default=128,
+parser.add_argument('--batch-size', type=int, default=128,
                     help='Number of samples per batch.')
 parser.add_argument('--timesteps', type=int, default=49,
                     help='The number of time steps per sample.')
@@ -28,9 +27,9 @@ parser.add_argument('--lr', type=float, default=0.0005,
                     help='Initial learning rate.')
 parser.add_argument('--hidden', type=int, default=256,
                     help='Number of hidden units.')
-parser.add_argument('--num_atoms', type=int, default=5,
+parser.add_argument('--num-atoms', type=int, default=5,
                     help='Number of atoms in simulation.')
-parser.add_argument('--num_classes', type=int, default=2,
+parser.add_argument('--num-classes', type=int, default=2,
                     help='Number of edge types.')
 parser.add_argument('--suffix', type=str, default='_springs',
                     help='Suffix for training data (e.g. "_charged".')
@@ -64,8 +63,6 @@ parser.add_argument('--var', type=float, default=5e-5,
 parser.add_argument('--fully-connected', action='store_true', default=False,
                     help='Use fully-connected graph.')
 
-print("NOTE: For Kuramoto model, set variance to 0.01.")
-
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 print(args)
@@ -92,40 +89,31 @@ else:
     print("WARNING: No save_folder provided!" +
           "Testing (within this script) will throw an error.")
 
-if args.motion:
-    train_loader, valid_loader, test_loader = load_motion_data(args.batch_size,
-                                                               args.suffix)
-elif args.suffix == "_kuramoto5" or args.suffix == "_kuramoto10":
-    train_loader, valid_loader, test_loader = load_kuramoto_data(
-        args.batch_size,
-        args.suffix)
-else:
-    train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = load_data(
-        args.batch_size, args.suffix)
+train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = load_data(
+    args.batch_size, args.suffix)
 
 # Generate fully-connected interaction graph (sparse graphs would also work)
 off_diag = np.ones([args.num_atoms, args.num_atoms]) - np.eye(args.num_atoms)
 
-# TODO: Is naming correct (rel_rec vs. rel_senc)? Or other way around?
 rel_rec = np.array(encode_onehot(np.where(off_diag)[1]), dtype=np.float32)
 rel_send = np.array(encode_onehot(np.where(off_diag)[0]), dtype=np.float32)
 rel_rec = torch.FloatTensor(rel_rec)
 rel_send = torch.FloatTensor(rel_send)
 
 if args.decoder == 'mlp':
-    model = InteractionDecoder(n_in_node=args.dims,
-                               edge_types=args.edge_types,
-                               msg_hid=args.hidden,
-                               msg_out=args.hidden,
-                               n_hid=args.hidden,
-                               do_prob=args.dropout,
-                               skip_first=args.skip_first)
+    model = MLPDecoder(n_in_node=args.dims,
+                       edge_types=args.edge_types,
+                       msg_hid=args.hidden,
+                       msg_out=args.hidden,
+                       n_hid=args.hidden,
+                       do_prob=args.dropout,
+                       skip_first=args.skip_first)
 elif args.decoder == 'rnn':
-    model = InteractionDecoderRecurrent(n_in_node=args.dims,
-                                        edge_types=args.edge_types,
-                                        n_hid=args.hidden,
-                                        do_prob=args.dropout,
-                                        skip_first=args.skip_first)
+    model = RNNDecoder(n_in_node=args.dims,
+                       edge_types=args.edge_types,
+                       n_hid=args.hidden,
+                       do_prob=args.dropout,
+                       skip_first=args.skip_first)
 
 if args.load_folder:
     load_file = os.path.join(args.load_folder, 'model.pt')
@@ -160,8 +148,6 @@ def train(epoch, best_val_loss):
     mse_baseline_val = []
     mse_train = []
     mse_val = []
-    mse_last_train = []
-    mse_last_val = []
 
     model.train()
     scheduler.step()
@@ -201,7 +187,6 @@ def train(epoch, best_val_loss):
         loss = nll_gaussian(output, target, args.var)
 
         mse = F.mse_loss(output, target)
-        mse_last = F.mse_loss(output[:, :, -1, :], target[:, :, -1, :])
         mse_baseline = F.mse_loss(inputs[:, :, :-1, :], inputs[:, :, 1:, :])
         loss.backward()
 
@@ -209,7 +194,6 @@ def train(epoch, best_val_loss):
 
         loss_train.append(loss.data[0])
         mse_train.append(mse.data[0])
-        mse_last_train.append(mse_last.data[0])
         mse_baseline_train.append(mse_baseline.data[0])
 
     model.eval()
@@ -241,22 +225,18 @@ def train(epoch, best_val_loss):
         loss = nll_gaussian(output, target, args.var)
 
         mse = F.mse_loss(output, target)
-        mse_last = F.mse_loss(output[:, :, -1, :], target[:, :, -1, :])
         mse_baseline = F.mse_loss(inputs[:, :, :-1, :], inputs[:, :, 1:, :])
 
         loss_val.append(loss.data[0])
         mse_val.append(mse.data[0])
-        mse_last_val.append(mse_last.data[0])
         mse_baseline_val.append(mse_baseline.data[0])
 
     print('Epoch: {:04d}'.format(epoch),
           'nll_train: {:.10f}'.format(np.mean(loss_train)),
           'mse_train: {:.12f}'.format(np.mean(mse_train)),
-          # 'mse_last_train: {:.12f}'.format(np.mean(mse_last_train)),
           'mse_baseline_train: {:.10f}'.format(np.mean(mse_baseline_train)),
           'nll_val: {:.10f}'.format(np.mean(loss_val)),
           'mse_val: {:.12f}'.format(np.mean(mse_val)),
-          # 'mse_last_val: {:.12f}'.format(np.mean(mse_last_val)),
           'mse_baseline_val: {:.10f}'.format(np.mean(mse_baseline_val)),
           'time: {:.4f}s'.format(time.time() - t))
     if args.save_folder and np.mean(loss_val) < best_val_loss:
@@ -265,11 +245,9 @@ def train(epoch, best_val_loss):
         print('Epoch: {:04d}'.format(epoch),
               'nll_train: {:.10f}'.format(np.mean(loss_train)),
               'mse_train: {:.12f}'.format(np.mean(mse_train)),
-              # 'mse_last_train: {:.12f}'.format(np.mean(mse_last_train)),
               'mse_baseline_train: {:.10f}'.format(np.mean(mse_baseline_train)),
               'nll_val: {:.10f}'.format(np.mean(loss_val)),
               'mse_val: {:.12f}'.format(np.mean(mse_val)),
-              # 'mse_last_val: {:.12f}'.format(np.mean(mse_last_val)),
               'mse_baseline_val: {:.10f}'.format(np.mean(mse_baseline_val)),
               'time: {:.4f}s'.format(time.time() - t), file=log)
         log.flush()
@@ -280,7 +258,6 @@ def test():
     loss_test = []
     mse_baseline_test = []
     mse_test = []
-    mse_last_test = []
     tot_mse = 0
     tot_mse_baseline = 0
     counter = 0
@@ -319,12 +296,10 @@ def test():
         loss = nll_gaussian(output, target, args.var)
 
         mse = F.mse_loss(output, target)
-        mse_last = F.mse_loss(output[:, :, -1, :], target[:, :, -1, :])
         mse_baseline = F.mse_loss(ins_cut[:, :, :-1, :], ins_cut[:, :, 1:, :])
 
         loss_test.append(loss.data[0])
         mse_test.append(mse.data[0])
-        mse_last_test.append(mse_last.data[0])
         mse_baseline_test.append(mse_baseline.data[0])
 
         # For plotting purposes
@@ -369,7 +344,6 @@ def test():
     print('--------------------------------')
     print('nll_test: {:.10f}'.format(np.mean(loss_test)),
           'mse_test: {:.12f}'.format(np.mean(mse_test)),
-          # 'mse_last_test: {:.12f}'.format(np.mean(mse_last_test)),
           'mse_baseline_test: {:.10f}'.format(np.mean(mse_baseline_test)))
     print('MSE: {}'.format(mse_str))
     print('MSE Baseline: {}'.format(mse_baseline_str))
@@ -379,7 +353,6 @@ def test():
         print('--------------------------------', file=log)
         print('nll_test: {:.10f}'.format(np.mean(loss_test)),
               'mse_test: {:.12f}'.format(np.mean(mse_test)),
-              # 'mse_last_test: {:.12f}'.format(np.mean(mse_last_test)),
               'mse_baseline_test: {:.10f}'.format(np.mean(mse_baseline_test)),
               file=log)
         print('MSE: {}'.format(mse_str), file=log)

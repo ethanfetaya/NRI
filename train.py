@@ -218,7 +218,8 @@ def train(epoch, best_val_loss):
         if args.prior:
             loss_kl = kl_categorical(prob, log_prior, args.num_atoms)
         else:
-            loss_kl = kl_categorical_uniform(prob, args.num_atoms)
+            loss_kl = kl_categorical_uniform(prob, args.num_atoms,
+                                             args.edge_types)
 
         loss = loss_nll + loss_kl
 
@@ -254,7 +255,7 @@ def train(epoch, best_val_loss):
 
         target = data[:, :, 1:, :]
         loss_nll = nll_gaussian(output, target, args.var)
-        loss_kl = kl_categorical_uniform(prob, args.num_atoms)
+        loss_kl = kl_categorical_uniform(prob, args.num_atoms, args.edge_types)
 
         acc = edge_accuracy(logits, relations)
         acc_val.append(acc)
@@ -323,7 +324,7 @@ def test():
 
         target = data_decoder[:, :, 1:, :]
         loss_nll = nll_gaussian(output, target, args.var)
-        loss_kl = kl_categorical_uniform(prob, args.num_atoms)
+        loss_kl = kl_categorical_uniform(prob, args.num_atoms, args.edge_types)
 
         acc = edge_accuracy(logits, relations)
         acc_test.append(acc)

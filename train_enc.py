@@ -20,7 +20,7 @@ parser.add_argument('--epochs', type=int, default=500,
                     help='Number of epochs to train.')
 parser.add_argument('--batch-size', type=int, default=128,
                     help='Number of samples per batch.')
-parser.add_argument('--lr', type=float, default=0.01,
+parser.add_argument('--lr', type=float, default=0.0005,
                     help='Initial learning rate.')
 parser.add_argument('--hidden', type=int, default=512,
                     help='Number of hidden units.')

@@ -4,7 +4,7 @@ This repository contains the official PyTorch implementation of:
 
 **Neural relational inference for interacting systems.**  
 Thomas Kipf*, Ethan Fetaya*, Kuan-Chieh Wang, Max Welling, Richard Zemel.  
-https://arxiv.org/abs/1802.04687  (*: equal contribution)˚
+https://arxiv.org/abs/1802.04687  (*: equal contribution)
 
 ![Neural Relational Inference (NRI)](nri.png)
 
@@ -23,6 +23,8 @@ cd data
 python generate_dataset.py
 ```
 This generates the springs dataset, use `--simulation charged` for charged particles.
+
+Note: Make sure to use the same preprocessing and evaluation scripts (check the loss function as well) as in our code release to get comparable results.
 
 ### Run experiments
 

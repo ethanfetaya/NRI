@@ -148,7 +148,7 @@ def train(epoch, best_val_accuracy):
         correct = pred.eq(target.data.view_as(pred)).cpu().sum()
         acc = correct / pred.size(0)
 
-        loss_train.append(loss.data[0])
+        loss_train.append(loss.item())
         acc_train.append(acc)
 
     model.eval()
@@ -169,7 +169,7 @@ def train(epoch, best_val_accuracy):
         correct = pred.eq(target.data.view_as(pred)).cpu().sum()
         acc = correct / pred.size(0)
 
-        loss_val.append(loss.data[0])
+        loss_val.append(loss.item())
         acc_val.append(acc)
 
     print('Epoch: {:04d}'.format(epoch),
@@ -217,7 +217,7 @@ def test():
         correct = pred.eq(target.data.view_as(pred)).cpu().sum()
         acc = correct / pred.size(0)
 
-        loss_test.append(loss.data[0])
+        loss_test.append(loss.item())
         acc_test.append(acc)
     print('--------------------------------')
     print('--------Testing-----------------')

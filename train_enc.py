@@ -89,8 +89,8 @@ train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = lo
 # Generate off-diagonal interaction graph
 off_diag = np.ones([args.num_atoms, args.num_atoms]) - np.eye(args.num_atoms)
 
-rel_rec = np.array(encode_onehot(np.where(off_diag)[1]), dtype=np.float32)
-rel_send = np.array(encode_onehot(np.where(off_diag)[0]), dtype=np.float32)
+rel_rec = np.array(encode_onehot(np.where(off_diag)[0]), dtype=np.float32)
+rel_send = np.array(encode_onehot(np.where(off_diag)[1]), dtype=np.float32)
 rel_rec = torch.FloatTensor(rel_rec)
 rel_send = torch.FloatTensor(rel_send)
 

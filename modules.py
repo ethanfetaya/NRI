@@ -556,7 +556,7 @@ class RNNDecoder(nn.Module):
         # node2edge
         receivers = torch.matmul(rel_rec, hidden)
         senders = torch.matmul(rel_send, hidden)
-        pre_msg = torch.cat([receivers, senders], dim=-1)
+        pre_msg = torch.cat([senders, receivers], dim=-1)
 
         all_msgs = Variable(torch.zeros(pre_msg.size(0), pre_msg.size(1),
                                         self.msg_out_shape))

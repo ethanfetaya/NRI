@@ -119,7 +119,7 @@ class MLPEncoder(nn.Module):
         # NOTE: Assumes that we have the same graph across all samples.
         receivers = torch.matmul(rel_rec, x)
         senders = torch.matmul(rel_send, x)
-        edges = torch.cat([receivers, senders], dim=2)
+        edges = torch.cat([senders, receivers], dim=2)
         return edges
 
     def forward(self, inputs, rel_rec, rel_send):
@@ -191,7 +191,7 @@ class CNNEncoder(nn.Module):
 
         # receivers and senders have shape:
         # [num_sims * num_edges, num_dims, num_timesteps]
-        edges = torch.cat([receivers, senders], dim=1)
+        edges = torch.cat([senders, receivers], dim=1)
         return edges
 
     def edge2node(self, x, rel_rec, rel_send):
@@ -203,7 +203,7 @@ class CNNEncoder(nn.Module):
         # NOTE: Assumes that we have the same graph across all samples.
         receivers = torch.matmul(rel_rec, x)
         senders = torch.matmul(rel_send, x)
-        edges = torch.cat([receivers, senders], dim=2)
+        edges = torch.cat([senders, receivers], dim=2)
         return edges
 
     def forward(self, inputs, rel_rec, rel_send):
@@ -445,7 +445,7 @@ class MLPDecoder(nn.Module):
         # Node2edge
         receivers = torch.matmul(rel_rec, single_timestep_inputs)
         senders = torch.matmul(rel_send, single_timestep_inputs)
-        pre_msg = torch.cat([receivers, senders], dim=-1)
+        pre_msg = torch.cat([senders, receivers], dim=-1)
 
         all_msgs = Variable(torch.zeros(pre_msg.size(0), pre_msg.size(1),
                                         pre_msg.size(2), self.msg_out_shape))
@@ -556,7 +556,7 @@ class RNNDecoder(nn.Module):
         # node2edge
         receivers = torch.matmul(rel_rec, hidden)
         senders = torch.matmul(rel_send, hidden)
-        pre_msg = torch.cat([receivers, senders], dim=-1)
+        pre_msg = torch.cat([senders, receivers], dim=-1)
 
         all_msgs = Variable(torch.zeros(pre_msg.size(0), pre_msg.size(1),
                                         self.msg_out_shape))

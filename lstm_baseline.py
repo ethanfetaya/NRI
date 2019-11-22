@@ -237,9 +237,9 @@ def train(epoch, best_val_loss):
         loss.backward()
         optimizer.step()
 
-        loss_train.append(loss.data[0])
-        mse_train.append(mse.data[0])
-        mse_baseline_train.append(mse_baseline.data[0])
+        loss_train.append(loss.item())
+        mse_train.append(mse.item())
+        mse_baseline_train.append(mse_baseline.item())
 
     model.eval()
     for batch_idx, (data, relations) in enumerate(valid_loader):
@@ -257,9 +257,9 @@ def train(epoch, best_val_loss):
         mse = F.mse_loss(output, target)
         mse_baseline = F.mse_loss(data[:, :, :-1, :], data[:, :, 1:, :])
 
-        loss_val.append(loss.data[0])
-        mse_val.append(mse.data[0])
-        mse_baseline_val.append(mse_baseline.data[0])
+        loss_val.append(loss.item())
+        mse_val.append(mse.item())
+        mse_baseline_val.append(mse_baseline.item())
 
     print('Epoch: {:04d}'.format(epoch),
           'nll_train: {:.10f}'.format(np.mean(loss_train)),
@@ -315,9 +315,9 @@ def test():
         mse = F.mse_loss(output, target)
         mse_baseline = F.mse_loss(ins_cut[:, :, :-1, :], ins_cut[:, :, 1:, :])
 
-        loss_test.append(loss.data[0])
-        mse_test.append(mse.data[0])
-        mse_baseline_test.append(mse_baseline.data[0])
+        loss_test.append(loss.item())
+        mse_test.append(mse.item())
+        mse_baseline_test.append(mse_baseline.item())
 
         if args.motion or args.non_markov:
             # RNN decoder evaluation setting

@@ -2,6 +2,9 @@ from synthetic_sim import ChargedParticlesSim, SpringSim
 import time
 import numpy as np
 import argparse
+import multiprocessing
+import math
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--simulation', type=str, default='springs',
@@ -39,28 +42,35 @@ np.random.seed(args.seed)
 
 print(suffix)
 
+def wrapper(args):
+    """To be pickled, we need to define it here and manually unstar the arguments."""
+    t = time.time()
+    res = sim.sample_trajectory(T=args[1], sample_freq=args[2])
+    if args[0] % 100 == 0:
+        print("Iter: {}, Simulation time: {}".format(args[0], time.time() - t))
+    return res
 
 def generate_dataset(num_sims, length, sample_freq):
-    loc_all = list()
-    vel_all = list()
-    edges_all = list()
 
-    for i in range(num_sims):
-        t = time.time()
-        loc, vel, edges = sim.sample_trajectory(T=length,
-                                                sample_freq=sample_freq)
-        if i % 100 == 0:
-            print("Iter: {}, Simulation time: {}".format(i, time.time() - t))
-        loc_all.append(loc)
-        vel_all.append(vel)
-        edges_all.append(edges)
+    # It is recommended to use num(cpu) / 2 to use skip hyperthreading (a bit dirty).
+    pool = multiprocessing.Pool(math.ceil(multiprocessing.cpu_count() / 2))
+
+    def arguments(num_sims):
+        """Iterator that returns for every sim the args (step, length, sample_freq)
+        to be fed to the wrapper.
+        """
+        for i in range(num_sims):
+            yield i, length, sample_freq
+
+    loc_all, vel_all, edges_all = zip(*list(pool.imap(wrapper, arguments(num_sims))))
+    pool.close()
+    pool.join()
 
     loc_all = np.stack(loc_all)
     vel_all = np.stack(vel_all)
     edges_all = np.stack(edges_all)
 
     return loc_all, vel_all, edges_all
-
 
 print("Generating {} training simulations".format(args.num_train))
 loc_train, vel_train, edges_train = generate_dataset(args.num_train,
